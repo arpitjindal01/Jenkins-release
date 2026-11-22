@@ -3,12 +3,14 @@ pipeline{
 
     stages{
         stage('Install and Test'){
-            steps{
-                script {
-                    sh 'pip install -r requirements.txt'
-                    sh 'python3 -m unittest discover -s tests -v'
-                }
-                }
+            steps {
+                sh '''
+                    python3 -m venv venv
+                    . venv/bin/activate
+                    pip install -r requirements.txt
+                    python3 -m unittest discover -s tests -v
+                '''
+            }
         }
 
 }
