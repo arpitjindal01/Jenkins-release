@@ -1,0 +1,20 @@
+{
+  "version": "v2",
+  "estimator": "sklearn.linear_model.LinearRegression",
+  "input": "record count",
+  "output": "minutes",
+  "python": "3.9.6",
+  "model_sha256": "46193d1777ba124dffe12fab38e3d1a1185659d98c41c685cf532430e443b4b2",
+  "training_records": [
+    1000,
+    2000,
+    3000,
+    4000
+  ],
+  "synthetic_training_minutes": [
+    8,
+    10,
+    12,
+    14
+  ]
+}
