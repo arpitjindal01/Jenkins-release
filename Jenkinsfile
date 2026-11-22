@@ -1,5 +1,5 @@
 pipeline{
-    agent {label 'ci-python'}
+    agent {label 'any'}
 
     stages{
         stage('Install and Test'){
