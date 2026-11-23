@@ -19,19 +19,6 @@ pipeline {
                 '''
             }
         }
-        stage('Debug Sonar Token') {
-            steps {
-                withSonarQubeEnv('SonarCloud') {
-                    sh '''
-                        echo "Host: $SONAR_HOST_URL"
-                        echo "Token length: ${#SONAR_AUTH_TOKEN}"
-                        curl -s -u "$SONAR_AUTH_TOKEN:" "$SONAR_HOST_URL/api/authentication/validate"
-                        echo
-                    '''
-                }
-            }
-        }
-
         stage('Sonar Analysis') {
             steps {
                 script {
@@ -41,6 +28,21 @@ pipeline {
                         sh "${scannerHome}/bin/sonar-scanner -Dsonar.qualitygate.wait=true"
                     }
                 }
+            }
+        }
+        stage('Package Metadata') {
+            when { branch 'main' }
+            steps {
+                sh '''
+                    test -f models/batch-runtime-v1.tar.gz || { echo "ERROR: model file missing"; exit 1; }
+                    SHA=$(sha256sum models/batch-runtime-v1.tar.gz | cut -d' ' -f1)
+                    [ -n "$SHA" ] || { echo "ERROR: could not compute SHA-256"; exit 1; }
+                    VERSION="1.0.${BUILD_NUMBER}-$(echo "$GIT_COMMIT" | cut -c1-7)"
+                    export VERSION SHA
+                    python3 -c 'import json,os; print(json.dumps({"version":os.environ["VERSION"],"sha256":os.environ["SHA"],"commit":os.environ["GIT_COMMIT"],"build_url":os.environ["BUILD_URL"]}, indent=2))' > release.json
+                    cat release.json
+                '''
+                archiveArtifacts artifacts: 'models/batch-runtime-v1.tar.gz, release.json', fingerprint: true
             }
         }
     }
