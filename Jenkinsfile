@@ -102,8 +102,37 @@ pipeline {
                         SHA=$(python3 -c 'import json; print(json.load(open("release.json"))["sha256"])')
                         echo "{\"env\":\"dev\",\"version\":\"$VERSION\",\"sha256\":\"$SHA\"}" > current.json
                         curl -fsS -H "Authorization: Bearer $ART_TOKEN" -T current.json \
-                            "$ARTIFACTORY_URL/$REPO/environments/____/current.json"
+                            "$ARTIFACTORY_URL/$REPO/environments/dev/current.json"
                         echo "DEV now serves $VERSION"
+                    '''
+                }
+            }
+        }
+        stage('Deploy DEV') {
+            when { branch 'main' }
+            steps {
+                withCredentials([string(credentialsId: 'artifactory-token', variable: 'ART_TOKEN')]) {
+                    sh '''
+                        # 1. Read what DEV should serve
+                        curl -fsS -H "Authorization: Bearer $ART_TOKEN" -o pointer.json \
+                            "$ARTIFACTORY_URL/$REPO/environments/dev/current.json"
+                        VERSION=$(python3 -c 'import json; print(json.load(open("pointer.json"))["version"])')
+                        WANT=$(python3 -c 'import json; print(json.load(open("pointer.json"))["sha256"])')
+                        [ -n "$VERSION" ] && [ -n "$WANT" ] || { echo "ERROR: pointer incomplete"; exit 1; }
+
+                        # 2. Fetch that exact release
+                        curl -fsS -H "Authorization: Bearer $ART_TOKEN" -o deploy.tar.gz \
+                            "$ARTIFACTORY_URL/$REPO/batch-runtime/$VERSION/batch-runtime-v1.tar.gz"
+
+                        # 3. Verify it is what was promoted
+                        GOT=$(sha256sum deploy.tar.gz | cut -d' ' -f1)
+                        [ "$GOT" = "$WANT" ] || { echo "ERROR: digest mismatch ($GOT vs $WANT)"; exit 1; }
+
+                        # 4. Unpack
+                        rm -rf deployed && mkdir deployed
+                        tar -xzf deploy.tar.gz -C deployed
+                        cat deployed/manifest.json
+                        echo "DEV deployed $VERSION sha256=$GOT"
                     '''
                 }
             }
