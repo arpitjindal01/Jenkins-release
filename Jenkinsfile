@@ -16,9 +16,9 @@ pipeline{
         stage('Sonar Analysis') {
             steps {
                 script {
-                    def scannerHome = tool 'sonar-scanner'
-                    withSonarQubeEnv('sonar') {
-                        sh "\"${scannerHome}/bin/sonar-scanner\""
+                    sh '''sonar-scanner \
+                        -Dsonar.organization=arpitjindal01 \
+                        -Dsonar.projectKey=arpitjindal01_Jenkins-release'''
                     }
                 }
             }
