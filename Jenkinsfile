@@ -50,7 +50,6 @@ pipeline {
                 archiveArtifacts artifacts: 'models/batch-runtime-v1.tar.gz, release.json', fingerprint: true
             }
         }
-
         stage('Artifactory Check') {
         when { branch 'main' }
         steps {
@@ -63,10 +62,36 @@ pipeline {
                         echo "--- authenticated read of repo ---"
                         curl -fsS -H "Authorization: Bearer $ART_TOKEN" "$ARTIFACTORY_URL/api/storage/$REPO"
                         echo
+                        
                     '''
                 }
             }
         
+            }
+        stage('Publish Model') {
+        when { branch 'main' }
+        steps {
+            withCredentials([string(credentialsId: 'artifactory-token', variable: 'ART_TOKEN')]) {
+                sh '''
+                    VERSION=$(python3 -c 'import json; print(json.load(open("release.json"))["version"])')
+                    SHA=$(python3 -c 'import json; print(json.load(open("release.json"))["sha256"])')
+                    [ -n "$VERSION" ] && [ -n "$SHA" ] || { echo "ERROR: release.json incomplete"; exit 1; }
+                    URL="$ARTIFACTORY_URL/$REPO/batch-runtime/$VERSION/batch-runtime-v1.tar.gz"
+
+                    CODE=$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $ART_TOKEN" "$URL")
+                    [ "$CODE" = "404" ] || { echo "ERROR: already published or check failed (HTTP $CODE)"; exit 1; }
+
+                    curl -fsS -H "Authorization: Bearer $ART_TOKEN" -H "X-Checksum-Sha256: $SHA" \
+                        -T models/batch-runtime-v1.tar.gz "$URL"
+
+                    curl -fsS -H "Authorization: Bearer $ART_TOKEN" -o downloaded.tar.gz "$URL"
+                    GOT=$(sha256sum downloaded.tar.gz | cut -d' ' -f1)
+                    [ "$GOT" = "$SHA" ] || { echo "ERROR: digest mismatch ($GOT vs $SHA)"; exit 1; }
+
+                    echo "Published $URL sha256=$SHA"
+                '''
+            }
+        }
     }
 }
 }
