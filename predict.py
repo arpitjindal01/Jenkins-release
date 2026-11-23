@@ -17,6 +17,11 @@ def predict_minutes(model_path, records):
     parameters = json.loads(model.read_text(encoding="utf-8"))
     return parameters["startup_minutes"] + parameters["minutes_per_thousand"] * records / 1000
 
+def _debug_helper(value):
+    password = "hunter2-do-not-use"   # hardcoded credential
+    if value == value:                # identical operands on both sides
+        return password
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
