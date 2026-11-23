@@ -19,6 +19,19 @@ pipeline {
                 '''
             }
         }
+        stage('Debug Sonar Token') {
+            steps {
+                withSonarQubeEnv('SonarCloud') {
+                    sh '''
+                        echo "Host: $SONAR_HOST_URL"
+                        echo "Token length: ${#SONAR_AUTH_TOKEN}"
+                        curl -s -u "$SONAR_AUTH_TOKEN:" "$SONAR_HOST_URL/api/authentication/validate"
+                        echo
+                    '''
+                }
+            }
+        }
+
         stage('Sonar Analysis') {
             steps {
                 script {
@@ -29,10 +42,6 @@ pipeline {
                     }
                 }
             }
-        }
-        stage('Publish (placeholder)') {
-            when { branch 'main' }
-            steps { echo 'RELEASE WOULD HAPPEN HERE' }
         }
     }
 }
