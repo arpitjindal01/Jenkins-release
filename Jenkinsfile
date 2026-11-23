@@ -1,6 +1,11 @@
 pipeline {
     agent any
 
+    environment {
+            ARTIFACTORY_URL = 'https://trialu143d4.jfrog.io/artifactory'
+            REPO            = 'batch-runtime-local'
+        }
+
     stages {
         stage('Checkout') {
             steps { checkout scm }
@@ -45,5 +50,22 @@ pipeline {
                 archiveArtifacts artifacts: 'models/batch-runtime-v1.tar.gz, release.json', fingerprint: true
             }
         }
+
+        stage('Artifactory Check') {
+        when { branch 'main' }
+        steps {
+                withCredentials([string(credentialsId: 'artifactory-token', variable: 'ART_TOKEN')]) {
+                    sh '''
+                        echo "--- ping (no auth) ---"
+                        curl -fsS "$ARTIFACTORY_URL/api/system/ping"
+                        echo
+
+                        echo "--- authenticated read of repo ---"
+                        curl -fsS -H "Authorization: Bearer $ART_TOKEN" "$ARTIFACTORY_URL/api/storage/$REPO"
+                        echo
+                    '''
+                }
+            }
+        
     }
 }
