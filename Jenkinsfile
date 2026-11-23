@@ -100,7 +100,10 @@ pipeline {
                     sh '''
                         VERSION=$(python3 -c 'import json; print(json.load(open("release.json"))["version"])')
                         SHA=$(python3 -c 'import json; print(json.load(open("release.json"))["sha256"])')
-                        echo "{\"env\":\"dev\",\"version\":\"$VERSION\",\"sha256\":\"$SHA\"}" > current.json
+                        export VERSION SHA
+                        python3 -c 'import json,os; print(json.dumps({"env":"dev","version":os.environ["VERSION"],"sha256":os.environ["SHA"]}, indent=2))' > current.json
+                        cat current.json
+                        python3 -c 'import json; json.load(open("current.json"))' || { echo "ERROR: pointer is not valid JSON"; exit 1; }
                         curl -fsS -H "Authorization: Bearer $ART_TOKEN" -T current.json \
                             "$ARTIFACTORY_URL/$REPO/environments/dev/current.json"
                         echo "DEV now serves $VERSION"
