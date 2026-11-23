@@ -92,6 +92,22 @@ pipeline {
                 '''
             }
         }
-    }
-}
+        }
+        stage('Promote DEV') {
+            when { branch 'main' }
+            steps {
+                withCredentials([string(credentialsId: 'artifactory-token', variable: 'ART_TOKEN')]) {
+                    sh '''
+                        VERSION=$(python3 -c 'import json; print(json.load(open("release.json"))["version"])')
+                        SHA=$(python3 -c 'import json; print(json.load(open("release.json"))["sha256"])')
+                        echo "{\"env\":\"dev\",\"version\":\"$VERSION\",\"sha256\":\"$SHA\"}" > current.json
+                        curl -fsS -H "Authorization: Bearer $ART_TOKEN" -T current.json \
+                            "$ARTIFACTORY_URL/$REPO/environments/____/current.json"
+                        echo "DEV now serves $VERSION"
+                    '''
+                }
+            }
+        }
+
+        }
 }
