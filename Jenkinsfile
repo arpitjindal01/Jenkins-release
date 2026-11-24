@@ -38,16 +38,16 @@ pipeline {
         stage('Package Metadata') {
             when { branch 'main' }
             steps {
-                // sh '''
-                //     test -f models/batch-runtime-v1.tar.gz || { echo "ERROR: model file missing"; exit 1; }
-                //     SHA=$(sha256sum models/batch-runtime-v1.tar.gz | cut -d' ' -f1)
-                //     [ -n "$SHA" ] || { echo "ERROR: could not compute SHA-256"; exit 1; }
-                //     VERSION="1.0.${BUILD_NUMBER}-$(echo "$GIT_COMMIT" | cut -c1-7)"
-                //     export VERSION SHA
-                //     python3 -c 'import json,os; print(json.dumps({"version":os.environ["VERSION"],"sha256":os.environ["SHA"],"commit":os.environ["GIT_COMMIT"],"build_url":os.environ["BUILD_URL"]}, indent=2))' > release.json
-                //     cat release.json
-                // '''
-                archiveArtifacts artifacts: 'models/batch-runtime-v1.tar.gz', fingerprint: true
+                sh '''
+                    test -f models/batch-runtime-v1.tar.gz || { echo "ERROR: model file missing"; exit 1; }
+                    SHA=$(sha256sum models/batch-runtime-v1.tar.gz | cut -d' ' -f1)
+                    [ -n "$SHA" ] || { echo "ERROR: could not compute SHA-256"; exit 1; }
+                    VERSION="1.0.${BUILD_NUMBER}-$(echo "$GIT_COMMIT" | cut -c1-7)"
+                    export VERSION SHA
+                    python3 -c 'import json,os; print(json.dumps({"version":os.environ["VERSION"],"sha256":os.environ["SHA"],"commit":os.environ["GIT_COMMIT"],"build_url":os.environ["BUILD_URL"]}, indent=2))' > release.json
+                    cat release.json
+                '''
+                archiveArtifacts artifacts: 'models/batch-runtime-v1.tar.gz, release.json', fingerprint: true
             }
         }
         stage('Artifactory Check') {
@@ -136,6 +136,58 @@ pipeline {
                         tar -xzf deploy.tar.gz -C deployed
                         cat deployed/manifest.json
                         echo "DEV deployed $VERSION sha256=$GOT"
+                    '''
+                }
+            }
+        }
+        stage('Approve QA') {
+            agent none
+            when { beforeInput true; branch 'main' }
+            options { timeout(time: 1, unit: 'HOURS') }
+            input {
+                message 'Promote the DEV version to QA?'
+                ok 'Promote'
+                submitter 'admin'
+                submitterParameter 'APPROVER'
+            }
+            steps { echo "QA approved by ${APPROVER}" }
+        }
+        stage('Promote QA') {
+            when { branch 'main' }
+            steps {
+                withCredentials([string(credentialsId: 'artifactory-token', variable: 'ART_TOKEN')]) {
+                    sh '''
+                        # 1. Read what DEV serves
+                        curl -fsS -H "Authorization: Bearer $ART_TOKEN" -o dev.json \
+                            "$ARTIFACTORY_URL/$REPO/environments/dev/current.json"
+                        VERSION=$(python3 -c 'import json; print(json.load(open("dev.json"))["version"])')
+                        SHA=$(python3 -c 'import json; print(json.load(open("dev.json"))["sha256"])')
+                        [ -n "$VERSION" ] && [ -n "$SHA" ] || { echo "ERROR: DEV pointer incomplete"; exit 1; }
+
+                        # 2. Write the QA pointer, with approval evidence
+                        export VERSION SHA
+                        python3 -c 'import json,os; print(json.dumps({"env":"qa","version":os.environ["VERSION"],"sha256":os.environ["SHA"],"approved_by":os.environ["APPROVER"]}, indent=2))' > qa.json
+                        cat qa.json
+                        python3 -c 'import json; json.load(open("qa.json"))' || { echo "ERROR: invalid JSON"; exit 1; }
+                        curl -fsS -H "Authorization: Bearer $ART_TOKEN" -T qa.json \
+                            "$ARTIFACTORY_URL/$REPO/environments/____/current.json"
+
+                        # 3. Fetch and verify the release
+                        curl -fsS -H "Authorization: Bearer $ART_TOKEN" -o qa.tar.gz \
+                            "$ARTIFACTORY_URL/$REPO/batch-runtime/$VERSION/batch-runtime-v1.tar.gz"
+                        GOT=$(sha256sum qa.tar.gz | cut -d' ' -f1)
+                        [ "$GOT" = "$SHA" ] || { echo "ERROR: digest mismatch"; exit 1; }
+
+                        # 4. Place it in the QA location
+                        TARGET=/var/lib/jenkins/deployments/qa
+                        rm -rf "$TARGET.new" && mkdir -p "$TARGET.new"
+                        tar -xzf qa.tar.gz -C "$TARGET.new"
+                        rm -rf "$TARGET" && mv "$TARGET.new" "$TARGET"
+
+                        # 5. Health check
+                        . venv/bin/activate
+                        python3 -c 'import joblib,sys; m=joblib.load("/var/lib/jenkins/deployments/qa/model.pkl"); p=float(m.predict([[10000]])[0]); print("QA predicts:", round(p,2)); sys.exit(0 if abs(p-25)<=1 else 1)' || { echo "ERROR: QA health check failed"; exit 1; }
+                        echo "QA serves $VERSION sha256=$SHA"
                     '''
                 }
             }
