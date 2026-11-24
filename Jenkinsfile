@@ -4,6 +4,7 @@ pipeline {
     environment {
             ARTIFACTORY_URL = 'https://trialu143d4.jfrog.io/artifactory'
             REPO            = 'batch-runtime-local'
+            QA_APPROVER     = 'unknown'
         }
 
     stages {
@@ -150,7 +151,10 @@ pipeline {
                 submitter 'admin'
                 submitterParameter 'APPROVER'
             }
-            steps { echo "QA approved by ${APPROVER}" }
+            steps {
+                script { env.QA_APPROVER = APPROVER }
+                echo "QA approved by ${APPROVER}"
+            }
         }
         stage('Promote QA') {
             when { branch 'main' }
@@ -166,11 +170,11 @@ pipeline {
 
                         # 2. Write the QA pointer, with approval evidence
                         export VERSION SHA
-                        python3 -c 'import json,os; print(json.dumps({"env":"qa","version":os.environ["VERSION"],"sha256":os.environ["SHA"],"approved_by":os.environ["APPROVER"]}, indent=2))' > qa.json
+                        python3 -c 'import json,os; print(json.dumps({"env":"qa","version":os.environ["VERSION"],"sha256":os.environ["SHA"],"approved_by":os.environ["QA_APPROVER"]}, indent=2))' > qa.json
                         cat qa.json
                         python3 -c 'import json; json.load(open("qa.json"))' || { echo "ERROR: invalid JSON"; exit 1; }
                         curl -fsS -H "Authorization: Bearer $ART_TOKEN" -T qa.json \
-                            "$ARTIFACTORY_URL/$REPO/environments/____/current.json"
+                            "$ARTIFACTORY_URL/$REPO/environments/qa/current.json"
 
                         # 3. Fetch and verify the release
                         curl -fsS -H "Authorization: Bearer $ART_TOKEN" -o qa.tar.gz \
